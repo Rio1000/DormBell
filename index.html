@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Doorbell Control Panel</title>
+    <style>
+        body { font-family: -apple-system, BlinkMacSystemFont, sans-serif; background-color: #f9f9f9; color: #333; margin: 0; padding: 2rem; display: flex; justify-content: center; align-items: center; min-height: 100vh; }
+        .container { max-width: 600px; width: 100%; background: white; padding: 2rem; border-radius: 12px; box-shadow: 0 4px 12px rgba(0,0,0,0.1); }
+        h1, h2 { text-align: center; color: #111; }
+        .status-box, .settings-box { margin-bottom: 2rem; }
+        label { font-weight: bold; display: block; margin-bottom: 0.5rem; }
+        input[type="text"] { width: 100%; padding: 0.75rem; border-radius: 8px; border: 1px solid #ccc; box-sizing: border-box; font-size: 1rem; }
+        button { width: 100%; padding: 0.85rem; background-color: #007aff; color: white; border: none; border-radius: 8px; font-size: 1rem; cursor: pointer; transition: background-color 0.2s; }
+        button:hover { background-color: #0056b3; }
+        button.secondary { background-color: #555; margin-top: 0.5rem; }
+        button.secondary:hover { background-color: #333; }
+        .toggle { display: flex; align-items: center; gap: 10px; margin-bottom: 1rem; }
+        /* Simple but effective toggle switch styling */
+        .switch { position: relative; display: inline-block; width: 50px; height: 28px; }
+        .switch input { opacity: 0; width: 0; height: 0; }
+        .slider { position: absolute; cursor: pointer; top: 0; left: 0; right: 0; bottom: 0; background-color: #ccc; transition: .4s; border-radius: 34px; }
+        .slider:before { position: absolute; content: ""; height: 20px; width: 20px; left: 4px; bottom: 4px; background-color: white; transition: .4s; border-radius: 50%; }
+        input:checked + .slider { background-color: #2196F3; }
+        input:checked + .slider:before { transform: translateX(22px); }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="status-box">
+            <h2>🔔 Doorbell Status</h2>
+            <p style="text-align:center; font-size: 1.1rem;">Last ring: <strong id="last-ring-time">{{ last_ring }}</strong></p>
+        </div>
+        <div class="settings-box">
+            <h2>⚙️ Settings</h2>
+            <form method="POST">
+                <div class="toggle">
+                    <label class="switch">
+                        <input type="checkbox" id="sound_on" name="sound_on" {% if sound_on %}checked{% endif %}>
+                        <span class="slider"></span>
+                    </label>
+                    <label for="sound_on" style="margin-bottom: 0;">Enable Sound (Buzzer & Web)</label>
+                </div>
+                <div class="toggle">
+                    <label class="switch">
+                        <input type="checkbox" id="notifications_on" name="notifications_on" {% if notifications_on %}checked{% endif %}>
+                        <span class="slider"></span>
+                    </label>
+                    <label for="notifications_on" style="margin-bottom: 0;">Enable Telegram Notifications</label>
+                </div>
+
+                <hr style="border: 0; border-top: 1px solid #eee; margin: 1.5rem 0;">
+                <label for="message">Notification Message:</label>
+                <input type="text" id="message" name="message" value="{{ message }}">
+                <br><br>
+                <button type="submit">Save Settings</button>
+                <button type="button" id="test-ring-button" class="secondary">Test Ring</button>
+            </form>
+        </div>
+    </div>
+
+    <audio id="doorbell-sound" src="{{ url_for('static', filename='sounds/seinfeld-sitcom-transition-bass-riff-67.mp3') }}"></audio>
+
+    <script>
+        document.addEventListener('DOMContentLoaded', () => {
+            // Store the last known event ID to detect new rings.
+            let lastKnownEventId = -1;
+            const lastRingElement = document.getElementById('last-ring-time');
+            const doorbellSound = document.getElementById('doorbell-sound');
+            const testRingButton = document.getElementById('test-ring-button');
+
+            async function checkStatus() {
+                try {
+                    // Fetch the latest status from our server
+                    const response = await fetch('/status');
+                    if (!response.ok) {
+                        console.error('Failed to fetch status from server.');
+                        return;
+                    }
+                    const data = await response.json();
+
+                    // Always update the displayed time on the page
+                    if (lastRingElement) {
+                        lastRingElement.textContent = data.last_ring_time;
+                    }
+
+                    // On the very first check, just set the initial event ID. Don't play a sound.
+                    if (lastKnownEventId === -1) {
+                        lastKnownEventId = data.ring_event_id;
+                        return;
+                    }
+
+                    // If the event ID from the server is newer, it means a ring has occurred.
+                    if (data.ring_event_id > lastKnownEventId) {                        
+                        // Only play the sound if it's enabled in the settings.
+                        if (data.sound_on) {
+                        console.log('New ring event detected! Playing sound.');
+                        doorbellSound.play().catch(e => console.error("Audio playback failed:", e));
+                        }
+                        // Update our known ID to prevent re-playing for the same event.
+                        lastKnownEventId = data.ring_event_id;
+                    }
+                } catch (error) {
+                    console.error('Error during status check:', error);
+                }
+            }
+
+            async function triggerTestRing() {
+                try {
+                    // Send a POST request to our new test endpoint
+                    await fetch('/test_ring', { method: 'POST' });
+                    console.log('Test ring signal sent to server.');
+                } catch (error) {
+                    console.error('Error triggering test ring:', error);
+                }
+            }
+
+            // Poll the server every 2 seconds for new updates.
+            setInterval(checkStatus, 2000);
+            
+            // Run once on page load to get the initial data right away.
+            checkStatus();
+
+            // Add click listener for the new test button
+            testRingButton.addEventListener('click', triggerTestRing);
+
+        });
+    </script>
+</body>
+</html>
